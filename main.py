@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand
 
 from bot.handlers import BotContext, JobManager, create_router
 from config import Settings
@@ -83,6 +84,12 @@ async def main() -> None:
         )
     )
     try:
+        await bot.set_my_commands(
+            [
+                BotCommand(command="start", description="Запустить бота"),
+                BotCommand(command="menu", description="Открыть главное меню"),
+            ]
+        )
         await dispatcher.start_polling(bot)
     finally:
         await bot.session.close()

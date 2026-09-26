@@ -1,4 +1,9 @@
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+)
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -14,6 +19,15 @@ def main_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="⛔ Остановить", callback_data="stop_job"),
             ],
         ]
+    )
+
+
+def persistent_menu() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="☰ Меню")]],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Выберите действие или отправьте сообщение",
     )
 
 

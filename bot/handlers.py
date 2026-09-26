@@ -6,11 +6,11 @@ from dataclasses import dataclass
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
-from bot.keyboards import download_menu, limit_menu, main_menu
+from bot.keyboards import download_menu, limit_menu, main_menu, persistent_menu
 from bot.states import SearchStates
 from database.db import ClinicRepository
 from exporters.excel import ExcelExporter
@@ -65,7 +65,19 @@ def create_router(context: BotContext) -> Router:
         if await deny_message(message):
             return
         await state.clear()
-        await message.answer("Парсер публичных контактов клиник", reply_markup=main_menu())
+        await message.answer(
+            "Парсер публичных контактов клиник",
+            reply_markup=persistent_menu(),
+        )
+        await message.answer("Главное меню", reply_markup=main_menu())
+
+    @router.message(Command("menu"))
+    @router.message(F.text == "☰ Меню")
+    async def command_menu(message: Message, state: FSMContext) -> None:
+        if await deny_message(message):
+            return
+        await state.clear()
+        await message.answer("Главное меню", reply_markup=main_menu())
 
     @router.callback_query(F.data == "menu")
     async def show_menu(callback: CallbackQuery, state: FSMContext) -> None:
