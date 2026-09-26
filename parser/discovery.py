@@ -15,10 +15,32 @@ class SearchResult:
     title: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class SearchPage:
+    results: tuple[SearchResult, ...]
+    has_more: bool
+
+
 class SearchProvider(ABC):
+    page_size = 20
+
     @abstractmethod
-    async def search(self, query: str, limit: int) -> list[SearchResult]:
+    async def search_page(self, query: str, page: int, page_size: int) -> SearchPage:
         raise NotImplementedError
+
+    async def search(self, query: str, limit: int) -> list[SearchResult]:
+        results: list[SearchResult] = []
+        page_number = 0
+        while len(results) < limit:
+            requested = min(self.page_size, limit - len(results))
+            page = await self.search_page(query, page_number, requested)
+            if not page.results:
+                break
+            results.extend(page.results)
+            if not page.has_more:
+                break
+            page_number += 1
+        return results[:limit]
 
 
 class BraveSearchProvider(SearchProvider):
@@ -41,9 +63,9 @@ class BraveSearchProvider(SearchProvider):
         self.search_lang = search_lang
         self.transport = transport
 
-    async def search(self, query: str, limit: int) -> list[SearchResult]:
-        results: list[SearchResult] = []
-        offset = 0
+    async def search_page(self, query: str, page: int, page_size: int) -> SearchPage:
+        if not 0 <= page <= 9:
+            return SearchPage((), False)
         headers = {
             "Accept": "application/json",
             "Accept-Encoding": "gzip",
@@ -56,29 +78,20 @@ class BraveSearchProvider(SearchProvider):
             follow_redirects=True,
             transport=self.transport,
         ) as client:
-            while len(results) < limit and offset <= 9:
-                count = min(20, limit - len(results))
-                params: dict[str, str | int] = {
-                    "q": query,
-                    "count": count,
-                    "offset": offset,
-                    "country": self.country,
-                    "search_lang": self.search_lang,
-                    "safesearch": "moderate",
-                }
-                response = await client.get(self.API_URL, params=params)
-                response.raise_for_status()
-                payload = response.json()
-                web = payload.get("web", {})
-                page = JsonSearchApiProvider._parse_results(payload)
-                if not page:
-                    break
-                results.extend(page)
-                more = bool(payload.get("query", {}).get("more_results_available"))
-                if not more or not isinstance(web, dict):
-                    break
-                offset += 1
-        return results[:limit]
+            params: dict[str, str | int] = {
+                "q": query,
+                "count": min(20, max(1, page_size)),
+                "offset": page,
+                "country": self.country,
+                "search_lang": self.search_lang,
+                "safesearch": "moderate",
+            }
+            response = await client.get(self.API_URL, params=params)
+            response.raise_for_status()
+            payload = response.json()
+        results = tuple(JsonSearchApiProvider._parse_results(payload))
+        more = bool(payload.get("query", {}).get("more_results_available"))
+        return SearchPage(results, more and page < 9)
 
 
 class JsonSearchApiProvider(SearchProvider):
@@ -87,6 +100,8 @@ class JsonSearchApiProvider(SearchProvider):
     It understands common response layouts: Google ``items``, Serper ``organic``,
     Bing ``webPages.value`` and a generic ``results`` list.
     """
+
+    page_size = 10
 
     def __init__(
         self,
@@ -113,9 +128,10 @@ class JsonSearchApiProvider(SearchProvider):
         self.timeout = timeout
         self.user_agent = user_agent
 
-    async def search(self, query: str, limit: int) -> list[SearchResult]:
-        results: list[SearchResult] = []
-        start = 1
+    async def search_page(self, query: str, page: int, page_size: int) -> SearchPage:
+        start = page * self.page_size + 1
+        if start > 100:
+            return SearchPage((), False)
         headers = {"User-Agent": self.user_agent, "Accept": "application/json"}
         if self.api_key_header:
             headers[self.api_key_header] = self.api_key
@@ -124,28 +140,22 @@ class JsonSearchApiProvider(SearchProvider):
             headers=headers,
             follow_redirects=True,
         ) as client:
-            while len(results) < limit and start <= 100:
-                page_size = min(10, limit - len(results))
-                params: dict[str, str | int] = {self.query_param: query}
-                if self.api_key_param:
-                    params[self.api_key_param] = self.api_key
-                if self.limit_param:
-                    params[self.limit_param] = page_size
-                if self.start_param:
-                    params[self.start_param] = start
-                if self.engine_id:
-                    params["cx"] = self.engine_id
-                response = await client.get(self.api_url, params=params)
-                response.raise_for_status()
-                payload = response.json()
-                page = self._parse_results(payload)
-                if not page:
-                    break
-                results.extend(page)
-                start += len(page)
-                if len(page) < page_size:
-                    break
-        return results[:limit]
+            params: dict[str, str | int] = {self.query_param: query}
+            if self.api_key_param:
+                params[self.api_key_param] = self.api_key
+            if self.limit_param:
+                params[self.limit_param] = min(self.page_size, max(1, page_size))
+            if self.start_param:
+                params[self.start_param] = start
+            if self.engine_id:
+                params["cx"] = self.engine_id
+            response = await client.get(self.api_url, params=params)
+            response.raise_for_status()
+            payload = response.json()
+        results = tuple(self._parse_results(payload))
+        explicit_more = payload.get("query", {}).get("more_results_available")
+        has_more = bool(explicit_more) if explicit_more is not None else len(results) >= page_size
+        return SearchPage(results, has_more and start + len(results) <= 100)
 
     @staticmethod
     def _parse_results(payload: dict[str, Any]) -> list[SearchResult]:
@@ -177,16 +187,31 @@ class DiscoveryService:
         self.excluded_domains = {domain.lower().removeprefix("www.") for domain in excluded_domains}
 
     async def discover(self, query: str, limit: int) -> list[SearchResult]:
-        raw = await self.provider.search(query, min(max(limit * 2, limit), 200))
+        results: list[SearchResult] = []
+        async for result in self.iter_discover(query, limit):
+            results.append(result)
+        return results
+
+    async def iter_discover(self, query: str, limit: int):
         unique: dict[str, SearchResult] = {}
-        for result in raw:
-            domain = normalize_domain(result.url)
-            if not domain or self._is_excluded(domain) or domain in unique:
-                continue
-            unique[domain] = SearchResult(url=root_url(result.url), title=result.title)
-            if len(unique) >= limit:
+        page_number = 0
+        raw_count = 0
+        while raw_count < limit:
+            requested = min(self.provider.page_size, limit - raw_count)
+            page = await self.provider.search_page(query, page_number, requested)
+            if not page.results:
                 break
-        return list(unique.values())
+            raw_count += len(page.results)
+            for result in page.results:
+                domain = normalize_domain(result.url)
+                if not domain or self._is_excluded(domain) or domain in unique:
+                    continue
+                normalized = SearchResult(url=root_url(result.url), title=result.title)
+                unique[domain] = normalized
+                yield normalized
+            if not page.has_more:
+                break
+            page_number += 1
 
     def _is_excluded(self, domain: str) -> bool:
         return any(domain == item or domain.endswith(f".{item}") for item in self.excluded_domains)

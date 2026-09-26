@@ -12,11 +12,13 @@ from services.parser_service import ParserService
 
 
 class FakeDiscovery:
-    async def discover(self, query: str, limit: int) -> list[SearchResult]:
-        return [
+    async def iter_discover(self, query: str, limit: int):
+        results = [
             SearchResult("https://one.example/"),
             SearchResult("https://two.example/"),
         ][:limit]
+        for result in results:
+            yield result
 
 
 class FakeCrawler:
@@ -39,11 +41,17 @@ class FakeCrawler:
 
 
 class ExtendedDiscovery:
-    async def discover(self, query: str, limit: int) -> list[SearchResult]:
-        return [
+    def __init__(self) -> None:
+        self.yielded = 0
+
+    async def iter_discover(self, query: str, limit: int):
+        results = [
             SearchResult(f"https://clinic-{index}.example/")
             for index in range(1, 7)
         ][:limit]
+        for result in results:
+            self.yielded += 1
+            yield result
 
 
 class OneFailureCrawler:
@@ -113,8 +121,9 @@ class ParserServiceTests(unittest.IsolatedAsyncioTestCase):
                     status=ClinicStatus.PARSED,
                 )
             )
+        discovery = ExtendedDiscovery()
         service = ParserService(
-            discovery=ExtendedDiscovery(),
+            discovery=discovery,
             crawler=OneFailureCrawler(),
             repository=self.repository,
             exporter=self.service.exporter,
@@ -129,6 +138,7 @@ class ParserServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(progress.successful, 2)
         self.assertEqual(progress.failed, 1)
         self.assertEqual(progress.processed, 3)
+        self.assertEqual(discovery.yielded, 5)
 
 
 if __name__ == "__main__":

@@ -61,34 +61,40 @@ class ParserService:
         run_id = await self.repository.start_run(query)
         progress = RunProgress(query=query)
         try:
-            results = await self.discovery.discover(query, MAX_DISCOVERY_RESULTS)
-            progress.discovered = len(results)
-            await self._notify(on_progress, progress)
-            position = 0
-            while (
-                position < len(results)
-                and progress.successful < limit
-                and not stop_event.is_set()
-            ):
+            targets: list[tuple[str, str]] = []
+            result_iterator = self.discovery.iter_discover(
+                query,
+                MAX_DISCOVERY_RESULTS,
+            ).__aiter__()
+            while progress.successful < limit and not stop_event.is_set():
+                try:
+                    result = await result_iterator.__anext__()
+                except StopAsyncIteration:
+                    break
+                progress.discovered += 1
+                domain = normalize_domain(result.url)
+                if await self.repository.reserve_new(domain, result.url):
+                    targets.append((domain, result.url))
+                else:
+                    progress.duplicates += 1
                 remaining = limit - progress.successful
-                batch_size = min(self.concurrency, remaining)
-                targets: list[tuple[str, str]] = []
-                while position < len(results) and len(targets) < batch_size:
-                    result = results[position]
-                    position += 1
-                    domain = normalize_domain(result.url)
-                    if await self.repository.reserve_new(domain, result.url):
-                        targets.append((domain, result.url))
-                    else:
-                        progress.duplicates += 1
-                await self._notify(on_progress, progress)
-                if targets:
+                if len(targets) >= min(self.concurrency, remaining):
                     await self._process_targets(
                         targets,
                         progress,
                         stop_event,
                         on_progress,
                     )
+                    targets = []
+                else:
+                    await self._notify(on_progress, progress)
+            if targets and not stop_event.is_set() and progress.successful < limit:
+                await self._process_targets(
+                    targets,
+                    progress,
+                    stop_event,
+                    on_progress,
+                )
             return progress
         finally:
             progress.stopped = stop_event.is_set()
