@@ -58,7 +58,7 @@ chmod 600 .env
 
 ```dotenv
 TELEGRAM_BOT_TOKEN=токен_от_BotFather
-ADMIN_TELEGRAM_ID=числовой_telegram_id
+ADMIN_TELEGRAM_IDS=первый_id,второй_id
 
 SEARCH_PROVIDER=brave
 SEARCH_API_KEY=ключ_Brave_Search_API
@@ -139,4 +139,3 @@ pm2 stop clinic-parser-bot
 cp -a /var/www/clinic-parser/data /var/backups/clinic-parser-data
 pm2 start clinic-parser-bot
 ```
-

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -23,10 +24,27 @@ def _as_int(value: str | None, default: int) -> int:
         return default
 
 
+def _as_int_set(*values: str | None) -> set[int]:
+    result: set[int] = set()
+    for value in values:
+        if not value:
+            continue
+        for item in re.split(r"[,;\s]+", value.strip()):
+            if not item:
+                continue
+            try:
+                parsed = int(item)
+            except ValueError:
+                continue
+            if parsed > 0:
+                result.add(parsed)
+    return result
+
+
 @dataclass(slots=True)
 class Settings:
     telegram_bot_token: str
-    admin_telegram_id: int
+    admin_telegram_ids: set[int]
     search_api_key: str
     search_api_url: str
     search_provider: str = "brave"
@@ -76,7 +94,10 @@ class Settings:
         }
         return cls(
             telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", "").strip(),
-            admin_telegram_id=_as_int(os.getenv("ADMIN_TELEGRAM_ID"), 0),
+            admin_telegram_ids=_as_int_set(
+                os.getenv("ADMIN_TELEGRAM_IDS"),
+                os.getenv("ADMIN_TELEGRAM_ID"),
+            ),
             search_api_key=os.getenv("SEARCH_API_KEY", "").strip(),
             search_api_url=os.getenv("SEARCH_API_URL", "").strip(),
             search_provider=os.getenv("SEARCH_PROVIDER", "brave").strip().lower(),
@@ -103,8 +124,8 @@ class Settings:
         missing: list[str] = []
         if not self.telegram_bot_token:
             missing.append("TELEGRAM_BOT_TOKEN")
-        if not self.admin_telegram_id:
-            missing.append("ADMIN_TELEGRAM_ID")
+        if not self.admin_telegram_ids:
+            missing.append("ADMIN_TELEGRAM_IDS")
         if not self.search_api_key:
             missing.append("SEARCH_API_KEY")
         if self.search_provider != "brave" and not self.search_api_url:

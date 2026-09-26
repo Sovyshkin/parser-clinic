@@ -74,7 +74,7 @@ async def main() -> None:
     dispatcher.include_router(
         create_router(
             BotContext(
-                admin_id=settings.admin_telegram_id,
+                admin_ids=settings.admin_telegram_ids,
                 repository=repository,
                 exporter=exporter,
                 service=service,

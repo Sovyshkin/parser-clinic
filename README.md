@@ -34,10 +34,16 @@ cp .env.example .env
 TELEGRAM_BOT_TOKEN=токен_бота
 SEARCH_API_KEY=ключ_brave_search
 SEARCH_PROVIDER=brave
-ADMIN_TELEGRAM_ID=ваш_telegram_id
+ADMIN_TELEGRAM_IDS=ваш_telegram_id
 ```
 
-`ADMIN_TELEGRAM_ID` ограничивает управление ботом одним администратором.
+`ADMIN_TELEGRAM_IDS` ограничивает управление ботом указанными администраторами. Несколько числовых ID перечисляются через запятую:
+
+```dotenv
+ADMIN_TELEGRAM_IDS=123456789,987654321
+```
+
+Старое имя `ADMIN_TELEGRAM_ID` для одного администратора также поддерживается.
 
 ### Получение ключа Brave Search API
 

@@ -35,7 +35,7 @@ class JobManager:
 
 @dataclass(slots=True)
 class BotContext:
-    admin_id: int
+    admin_ids: set[int]
     repository: ClinicRepository
     exporter: ExcelExporter
     service: ParserService
@@ -46,7 +46,7 @@ def create_router(context: BotContext) -> Router:
     router = Router(name=__name__)
 
     def allowed(user_id: int) -> bool:
-        return user_id == context.admin_id
+        return user_id in context.admin_ids
 
     async def deny_message(message: Message) -> bool:
         if message.from_user and allowed(message.from_user.id):
@@ -250,4 +250,3 @@ def _finished_text(progress: RunProgress, total_parsed: int) -> str:
         f"Ошибок: {progress.failed}\n"
         f"Всего клиник в базе: {total_parsed}"
     )
-
