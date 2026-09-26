@@ -123,6 +123,41 @@ def create_router(context: BotContext) -> Router:
             lambda stop, notify: context.service.run_search(query, limit, stop, notify),
         )
 
+    @router.callback_query(SearchStates.waiting_for_limit, F.data == "custom_limit")
+    async def request_custom_limit(callback: CallbackQuery, state: FSMContext) -> None:
+        if await deny_callback(callback):
+            return
+        if context.jobs.running:
+            await callback.answer("Сбор уже выполняется.", show_alert=True)
+            return
+        await state.set_state(SearchStates.waiting_for_custom_limit)
+        if callback.message:
+            await callback.message.answer("Введите количество сайтов от 1 до 100.")
+        await callback.answer()
+
+    @router.message(SearchStates.waiting_for_custom_limit)
+    async def accept_custom_limit(message: Message, state: FSMContext, bot: Bot) -> None:
+        if await deny_message(message):
+            return
+        if context.jobs.running:
+            await message.answer("Сбор уже выполняется.")
+            return
+        limit = parse_site_limit(message.text or "")
+        if limit is None:
+            await message.answer("Введите целое число от 1 до 100.")
+            return
+        data = await state.get_data()
+        query = str(data.get("query", "")).strip()
+        await state.clear()
+        status = await message.answer(_progress_text(RunProgress(query=query)))
+        _start_background_job(
+            context,
+            bot,
+            status.chat.id,
+            status.message_id,
+            lambda stop, notify: context.service.run_search(query, limit, stop, notify),
+        )
+
     @router.callback_query(F.data == "retry_failed")
     async def retry_failed(callback: CallbackQuery, bot: Bot) -> None:
         if await deny_callback(callback):
@@ -228,6 +263,14 @@ def _start_background_job(context, bot, chat_id, message_id, runner) -> None:
             context.jobs.stop_event = None
 
     context.jobs.task = asyncio.create_task(work())
+
+
+def parse_site_limit(value: str) -> int | None:
+    try:
+        limit = int(value.strip())
+    except ValueError:
+        return None
+    return limit if 1 <= limit <= 100 else None
 
 
 def _progress_text(progress: RunProgress) -> str:
