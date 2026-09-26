@@ -223,13 +223,13 @@ def create_router(context: BotContext) -> Router:
     async def download_excel(callback: CallbackQuery) -> None:
         if await deny_callback(callback):
             return
+        await callback.answer("Готовлю Excel…")
         path = await context.exporter.export_all_to_excel()
         if callback.message:
             await callback.message.answer_document(
                 FSInputFile(path, filename="clinics.xlsx"),
                 caption="Актуальная выгрузка из SQLite",
             )
-        await callback.answer()
 
     return router
 
