@@ -14,6 +14,7 @@ from parser.normalizer import normalize_domain
 
 
 logger = logging.getLogger(__name__)
+MAX_DISCOVERY_RESULTS = 200
 
 
 @dataclass(slots=True)
@@ -60,17 +61,34 @@ class ParserService:
         run_id = await self.repository.start_run(query)
         progress = RunProgress(query=query)
         try:
-            results = await self.discovery.discover(query, limit)
+            results = await self.discovery.discover(query, MAX_DISCOVERY_RESULTS)
             progress.discovered = len(results)
-            targets: list[tuple[str, str]] = []
-            for result in results:
-                domain = normalize_domain(result.url)
-                if await self.repository.reserve_new(domain, result.url):
-                    targets.append((domain, result.url))
-                else:
-                    progress.duplicates += 1
             await self._notify(on_progress, progress)
-            await self._process_targets(targets, progress, stop_event, on_progress)
+            position = 0
+            while (
+                position < len(results)
+                and progress.successful < limit
+                and not stop_event.is_set()
+            ):
+                remaining = limit - progress.successful
+                batch_size = min(self.concurrency, remaining)
+                targets: list[tuple[str, str]] = []
+                while position < len(results) and len(targets) < batch_size:
+                    result = results[position]
+                    position += 1
+                    domain = normalize_domain(result.url)
+                    if await self.repository.reserve_new(domain, result.url):
+                        targets.append((domain, result.url))
+                    else:
+                        progress.duplicates += 1
+                await self._notify(on_progress, progress)
+                if targets:
+                    await self._process_targets(
+                        targets,
+                        progress,
+                        stop_event,
+                        on_progress,
+                    )
             return progress
         finally:
             progress.stopped = stop_event.is_set()

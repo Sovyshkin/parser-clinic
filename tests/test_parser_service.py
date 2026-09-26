@@ -38,6 +38,28 @@ class FakeCrawler:
         )
 
 
+class ExtendedDiscovery:
+    async def discover(self, query: str, limit: int) -> list[SearchResult]:
+        return [
+            SearchResult(f"https://clinic-{index}.example/")
+            for index in range(1, 7)
+        ][:limit]
+
+
+class OneFailureCrawler:
+    async def crawl(self, website: str) -> Clinic:
+        domain = normalize_domain(website)
+        if domain == "clinic-3.example":
+            raise RuntimeError("temporary failure")
+        return Clinic(
+            domain=domain,
+            website=website,
+            clinic_name=domain,
+            parsed_at=utc_now_iso(),
+            status=ClinicStatus.PARSED,
+        )
+
+
 class ParserServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -78,6 +100,35 @@ class ParserServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(stopped.stopped)
         self.assertIsNone(await self.repository.get_status("one.example"))
         self.assertIsNone(await self.repository.get_status("two.example"))
+
+    async def test_continues_until_requested_new_clinics_are_added(self) -> None:
+        for index in (1, 2):
+            domain = f"clinic-{index}.example"
+            await self.repository.reserve_new(domain, f"https://{domain}/")
+            await self.repository.mark_parsed(
+                Clinic(
+                    domain=domain,
+                    website=f"https://{domain}/",
+                    parsed_at=utc_now_iso(),
+                    status=ClinicStatus.PARSED,
+                )
+            )
+        service = ParserService(
+            discovery=ExtendedDiscovery(),
+            crawler=OneFailureCrawler(),
+            repository=self.repository,
+            exporter=self.service.exporter,
+            concurrency=1,
+            min_delay=0,
+            max_delay=0,
+        )
+
+        progress = await service.run_search("test", 2, asyncio.Event())
+
+        self.assertEqual(progress.duplicates, 2)
+        self.assertEqual(progress.successful, 2)
+        self.assertEqual(progress.failed, 1)
+        self.assertEqual(progress.processed, 3)
 
 
 if __name__ == "__main__":
