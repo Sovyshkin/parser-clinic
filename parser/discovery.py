@@ -177,7 +177,7 @@ class DiscoveryService:
         self.excluded_domains = {domain.lower().removeprefix("www.") for domain in excluded_domains}
 
     async def discover(self, query: str, limit: int) -> list[SearchResult]:
-        raw = await self.provider.search(query, min(max(limit * 2, limit), 100))
+        raw = await self.provider.search(query, min(max(limit * 2, limit), 200))
         unique: dict[str, SearchResult] = {}
         for result in raw:
             domain = normalize_domain(result.url)

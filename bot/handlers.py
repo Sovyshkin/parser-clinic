@@ -132,7 +132,7 @@ def create_router(context: BotContext) -> Router:
             return
         await state.set_state(SearchStates.waiting_for_custom_limit)
         if callback.message:
-            await callback.message.answer("Введите количество сайтов от 1 до 100.")
+            await callback.message.answer("Введите количество сайтов от 1 до 200.")
         await callback.answer()
 
     @router.message(SearchStates.waiting_for_custom_limit)
@@ -144,7 +144,7 @@ def create_router(context: BotContext) -> Router:
             return
         limit = parse_site_limit(message.text or "")
         if limit is None:
-            await message.answer("Введите целое число от 1 до 100.")
+            await message.answer("Введите целое число от 1 до 200.")
             return
         data = await state.get_data()
         query = str(data.get("query", "")).strip()
@@ -270,7 +270,7 @@ def parse_site_limit(value: str) -> int | None:
         limit = int(value.strip())
     except ValueError:
         return None
-    return limit if 1 <= limit <= 100 else None
+    return limit if 1 <= limit <= 200 else None
 
 
 def _progress_text(progress: RunProgress) -> str:

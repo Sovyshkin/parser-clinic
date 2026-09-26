@@ -25,6 +25,7 @@ def limit_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="50", callback_data="limit:50"),
                 InlineKeyboardButton(text="100", callback_data="limit:100"),
             ],
+            [InlineKeyboardButton(text="200", callback_data="limit:200")],
             [InlineKeyboardButton(text="✏️ Своё количество", callback_data="custom_limit")],
         ]
     )
