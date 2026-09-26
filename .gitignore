@@ -1,0 +1,14 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+clinic-parser-deploy.tar.gz
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.xlsx
+!data/.gitkeep
