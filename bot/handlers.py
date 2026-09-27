@@ -224,7 +224,7 @@ def create_router(context: BotContext) -> Router:
         if await deny_callback(callback):
             return
         await callback.answer("Готовлю Excel…")
-        path = await context.exporter.export_all_to_excel()
+        path = await context.exporter.export_latest_run_to_excel()
         if callback.message:
             await callback.message.answer_document(
                 FSInputFile(path, filename="clinics.xlsx"),

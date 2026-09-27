@@ -33,6 +33,7 @@ class ClinicRepository:
                         CHECK(status IN ('new', 'parsed', 'failed')),
                     error TEXT NOT NULL DEFAULT '',
                     parsed_at TEXT,
+                    parsed_run_id INTEGER,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -51,6 +52,18 @@ class ClinicRepository:
                     failed INTEGER NOT NULL DEFAULT 0,
                     stopped INTEGER NOT NULL DEFAULT 0
                 );
+                """
+            )
+            cursor = await db.execute("PRAGMA table_info(clinics)")
+            columns = {row[1] for row in await cursor.fetchall()}
+            if "parsed_run_id" not in columns:
+                await db.execute(
+                    "ALTER TABLE clinics ADD COLUMN parsed_run_id INTEGER"
+                )
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_clinics_parsed_run_id
+                    ON clinics(parsed_run_id)
                 """
             )
             await db.execute(
@@ -85,7 +98,7 @@ class ClinicRepository:
             await db.commit()
             return cursor.rowcount == 1
 
-    async def mark_parsed(self, clinic: Clinic) -> None:
+    async def mark_parsed(self, clinic: Clinic, run_id: int | None = None) -> None:
         parsed_at = clinic.parsed_at or utc_now_iso()
         values = (
             clinic.website,
@@ -97,6 +110,7 @@ class ClinicRepository:
             json.dumps(list(clinic.vk), ensure_ascii=False),
             clinic.address,
             parsed_at,
+            run_id,
             utc_now_iso(),
             clinic.domain,
         )
@@ -106,7 +120,8 @@ class ClinicRepository:
                 UPDATE clinics SET
                     website = ?, clinic_name = ?, phones = ?, emails = ?,
                     telegram = ?, whatsapp = ?, vk = ?, address = ?,
-                    status = 'parsed', error = '', parsed_at = ?, updated_at = ?
+                    status = 'parsed', error = '', parsed_at = ?,
+                    parsed_run_id = ?, updated_at = ?
                 WHERE domain = ?
                 """,
                 values,
@@ -140,7 +155,17 @@ class ClinicRepository:
     async def list_parsed(self) -> list[Clinic]:
         return await self._list("WHERE status = 'parsed' ORDER BY parsed_at, domain")
 
-    async def _list(self, clause: str = "") -> list[Clinic]:
+    async def list_parsed_for_run(self, run_id: int) -> list[Clinic]:
+        return await self._list(
+            "WHERE status = 'parsed' AND parsed_run_id = ? ORDER BY parsed_at, domain",
+            (run_id,),
+        )
+
+    async def _list(
+        self,
+        clause: str = "",
+        parameters: tuple = (),
+    ) -> list[Clinic]:
         query = f"""
             SELECT domain, website, clinic_name, phones, emails, telegram,
                    whatsapp, vk, address, parsed_at, status, error
@@ -148,7 +173,7 @@ class ClinicRepository:
         """
         async with aiosqlite.connect(self.path) as db:
             db.row_factory = aiosqlite.Row
-            cursor = await db.execute(query)
+            cursor = await db.execute(query, parameters)
             rows = await cursor.fetchall()
         return [self._row_to_clinic(row) for row in rows]
 
@@ -211,6 +236,12 @@ class ClinicRepository:
             )
             await db.commit()
             return int(cursor.lastrowid)
+
+    async def latest_run_id(self) -> int | None:
+        async with aiosqlite.connect(self.path) as db:
+            cursor = await db.execute("SELECT MAX(id) FROM runs")
+            row = await cursor.fetchone()
+        return int(row[0]) if row and row[0] is not None else None
 
     async def finish_run(
         self,

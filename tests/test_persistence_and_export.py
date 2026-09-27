@@ -43,11 +43,46 @@ class PersistenceAndExportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await reopened.get_status("pending.ru"), ClinicStatus.FAILED)
 
         path = await ExcelExporter(reopened, self.xlsx_path).export_all_to_excel()
-        workbook = load_workbook(path, read_only=True)
+        workbook = load_workbook(path)
         sheet = workbook["Clinics"]
         self.assertEqual(sheet.max_row, 2)
         self.assertEqual(sheet["A2"].value, "clinic.ru")
         self.assertEqual(sheet["D2"].value, "+79123456789")
+        workbook.close()
+
+    async def test_latest_run_export_excludes_previous_runs(self) -> None:
+        first_run_id = await self.repository.start_run("first")
+        await self.repository.reserve_new("first.ru", "https://first.ru/")
+        await self.repository.mark_parsed(
+            Clinic(
+                domain="first.ru",
+                website="https://first.ru/",
+                clinic_name="Первая клиника",
+                status=ClinicStatus.PARSED,
+            ),
+            first_run_id,
+        )
+
+        second_run_id = await self.repository.start_run("second")
+        await self.repository.reserve_new("second.ru", "https://second.ru/")
+        await self.repository.mark_parsed(
+            Clinic(
+                domain="second.ru",
+                website="https://second.ru/",
+                clinic_name="Вторая клиника",
+                status=ClinicStatus.PARSED,
+            ),
+            second_run_id,
+        )
+
+        path = await ExcelExporter(
+            self.repository,
+            self.xlsx_path,
+        ).export_latest_run_to_excel()
+        workbook = load_workbook(path)
+        sheet = workbook["Clinics"]
+        self.assertEqual(sheet.max_row, 2)
+        self.assertEqual(sheet["A2"].value, "second.ru")
         workbook.close()
 
 

@@ -61,6 +61,7 @@ class ParserService:
         run_id = await self.repository.start_run(query)
         progress = RunProgress(query=query)
         try:
+            await self.exporter.export_run_to_excel(run_id)
             targets: list[tuple[str, str]] = []
             result_iterator = self.discovery.iter_discover(
                 query,
@@ -84,6 +85,7 @@ class ParserService:
                         progress,
                         stop_event,
                         on_progress,
+                        run_id,
                     )
                     targets = []
                 else:
@@ -94,6 +96,7 @@ class ParserService:
                     progress,
                     stop_event,
                     on_progress,
+                    run_id,
                 )
             return progress
         finally:
@@ -116,9 +119,16 @@ class ParserService:
         progress = RunProgress(query="Повтор ошибок", discovered=len(failed))
         run_id = await self.repository.start_run(progress.query)
         try:
+            await self.exporter.export_run_to_excel(run_id)
             targets = [(clinic.domain, clinic.website) for clinic in failed]
             await self._notify(on_progress, progress)
-            await self._process_targets(targets, progress, stop_event, on_progress)
+            await self._process_targets(
+                targets,
+                progress,
+                stop_event,
+                on_progress,
+                run_id,
+            )
             return progress
         finally:
             progress.stopped = stop_event.is_set()
@@ -137,6 +147,7 @@ class ParserService:
         progress: RunProgress,
         stop_event: asyncio.Event,
         on_progress: ProgressCallback | None,
+        run_id: int,
     ) -> None:
         semaphore = asyncio.Semaphore(self.concurrency)
         progress_lock = asyncio.Lock()
@@ -148,8 +159,8 @@ class ParserService:
                     return
                 try:
                     clinic = await self.crawler.crawl(url)
-                    await self.repository.mark_parsed(clinic)
-                    await self.exporter.export_all_to_excel()
+                    await self.repository.mark_parsed(clinic, run_id)
+                    await self.exporter.export_run_to_excel(run_id)
                     success = True
                 except Exception as exc:
                     await self.repository.mark_failed(domain, f"{type(exc).__name__}: {exc}")

@@ -38,6 +38,20 @@ class ExcelExporter:
             await asyncio.to_thread(self._write, clinics)
         return self.path
 
+    async def export_run_to_excel(self, run_id: int) -> Path:
+        async with self._lock:
+            clinics = await self.repository.list_parsed_for_run(run_id)
+            await asyncio.to_thread(self._write, clinics)
+        return self.path
+
+    async def export_latest_run_to_excel(self) -> Path:
+        run_id = await self.repository.latest_run_id()
+        if run_id is None:
+            async with self._lock:
+                await asyncio.to_thread(self._write, [])
+            return self.path
+        return await self.export_run_to_excel(run_id)
+
     def _write(self, clinics: list[Clinic]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         workbook = Workbook()
